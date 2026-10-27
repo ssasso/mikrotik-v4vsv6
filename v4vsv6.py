@@ -210,6 +210,8 @@ body {{ font-family: system-ui, sans-serif; margin: 1rem auto; max-width: 1700px
 h1 {{ font-size: 1.4rem; }} h2 {{ margin-top: 2rem; }} h3 {{ margin: 1rem 0 .3rem; font-size: 1rem; }}
 .row {{ display: flex; flex-wrap: wrap; gap: 1rem; }}
 .row img {{ max-width: 100%; height: auto; background: #fff; }}
+/* keep graph images visible and readable */
+.row img {{ flex: 1 1 500px; min-width: 0; max-width: 100%; height: auto; background: #fff; }}
 small {{ opacity: .7; }}
 </style></head><body>
 <h1>{html.escape(cfg.title)}</h1>
