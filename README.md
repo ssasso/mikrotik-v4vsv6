@@ -145,6 +145,4 @@ v4vsv6.py -c /path/file.conf   use a different configuration file
 | Empty graphs on the first run | Wait for at least two samples |
 | Garbled or missing text in the graphs | Install a font package, e.g. `fonts-dejavu-core` |
 
-## License
 
-Add a license of your choice (for example MIT) as a `LICENSE` file.
