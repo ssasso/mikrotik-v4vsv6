@@ -1,0 +1,18 @@
+[router]
+host = 192.168.88.1
+# 8728 = api, 8729 = api-ssl
+port = 8728
+use_ssl = no
+ssl_verify = no
+username = v4v6-monitor
+password = CHANGEME
+
+[general]
+# Comma separated, as named in RouterOS
+interfaces = ether1
+# Also the RRD step: must match the cron schedule
+interval_minutes = 15
+output_dir = /var/www/html/v4vsv6
+data_dir = /var/lib/v4vsv6
+title = IPv4 vs IPv6 traffic
+rrdtool = rrdtool
