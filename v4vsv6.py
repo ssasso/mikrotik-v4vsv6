@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -u
 """
 v4vsv6 - Per-interface IPv4 vs IPv6 traffic graphs for MikroTik routers.
 
@@ -17,6 +17,7 @@ Usage:
     v4vsv6.py                      # collect + graph (config: /opt/v4vsv6/v4vsv6.conf)
     v4vsv6.py --print-routeros     # print the RouterOS commands to paste on the router
     v4vsv6.py -c /other/path.conf  # use a configuration file in a different location
+    python3 -u v4vsv6.py           # force unbuffered stdout/stderr for cron/systemd logs
 """
 import argparse
 import configparser
@@ -253,12 +254,13 @@ def main():
     if not counters:
         sys.exit("No counters found on the router: did you create the rules? (--print-routeros)")
 
-    print("Counters received from the router:")
+    print("Counter summary:")
     for iface in cfg.interfaces:
-        for fam in FAMILIES:
-            for direction in DIRECTIONS:
-                value = counters.get((iface, fam, direction), "missing")
-                print(f"{iface} {fam}_{direction}={value}")
+        summary = " ".join(
+            f"{fam}_{direction}={counters.get((iface, fam, direction), 'missing')}"
+            for fam in FAMILIES for direction in DIRECTIONS
+        )
+        print(f"  {iface}: {summary}")
 
     for iface in cfg.interfaces:
         rrd_file = os.path.join(cfg.data_dir, safe(iface) + ".rrd")
