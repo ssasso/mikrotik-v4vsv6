@@ -8,6 +8,7 @@ MikroTik's SNMP counters give you total traffic per interface, but not how much 
 
 - IPv4 and IPv6 stacked graphs, separately for inbound and outbound traffic, for any number of interfaces
 - Four time ranges per graph: 24 hours, 7 days, 30 days, 1 year
+- Two rows of graphs per time range: **bandwidth** (bit/s) and **transferred volume** (bytes per hour / 6 hours / 12 hours / day), with the total volume and the IPv6 share in the legend
 - Average, maximum and last value for each family, plus the IPv6 share over the displayed period
 - Configurable sampling interval (default: 15 minutes)
 - Configurable output directory (default: `/var/www/html/v4vsv6`), ready to be served by any web server
@@ -92,6 +93,8 @@ output_dir = /var/www/html/v4vsv6
 data_dir = /var/lib/v4vsv6
 title = IPv4 vs IPv6 traffic
 rrdtool = rrdtool
+# Also draw volume (bytes) graphs under the bandwidth graphs
+volume_graphs = yes
 ```
 
 | Option | Default | Description |
@@ -107,6 +110,7 @@ rrdtool = rrdtool
 | `data_dir` | `/var/lib/v4vsv6` | Where the RRD files are stored |
 | `title` | `IPv4 vs IPv6 traffic` | Title of the HTML page |
 | `rrdtool` | `rrdtool` | Path of the rrdtool binary |
+| `volume_graphs` | `yes` | Draw the volume (bytes) graphs in addition to the bandwidth graphs |
 
 ### Adding an interface
 
@@ -115,6 +119,26 @@ Add it to `interfaces` and run `--print-routeros` again: only the rules for the 
 ### Data retention
 
 Full resolution is kept for 14 days, roughly hourly averages for 120 days and roughly daily averages for 5 years. About 100 KB per interface.
+
+## Volume graphs
+
+Under each bandwidth graph there is a second graph showing how much data was transferred (IPv4 and IPv6 stacked). No extra data is collected: the RRD stores the average rate of every interval, and the volume of a bar is that rate multiplied by the bar length.
+
+| Time range | One bar is |
+| --- | --- |
+| Last 24 hours | 1 hour |
+| Last 7 days | 6 hours |
+| Last 30 days | 12 hours |
+| Last year | 1 day |
+
+The legend shows the total volume of the period, the largest bar and the IPv6 share of the volume. Units are decimal (1 GB = 10^9 bytes). Set `volume_graphs = no` to disable them.
+
+Things to know:
+
+- Bars are aligned to the Unix epoch, so day boundaries are in UTC, not local time.
+- Volumes are IP-level bytes counted by the firewall rules, without Ethernet headers: they are slightly lower than the interface counters or your ISP's figures. Do not use them to the byte against a data cap.
+- Intervals in which the router could not be polled for more than two sampling periods count as unknown and are not estimated, so the totals can be underestimated after an outage. Counter resets (reboot, re-created rules) lose the traffic of that one interval.
+- In the year graph the current day is not shown until it is complete.
 
 ## Command-line usage
 
@@ -144,5 +168,3 @@ v4vsv6.py -c /path/file.conf   use a different configuration file
 | Authentication or connection error | Check user, password, `address=` restrictions on the user and the API service |
 | Empty graphs on the first run | Wait for at least two samples |
 | Garbled or missing text in the graphs | Install a font package, e.g. `fonts-dejavu-core` |
-
-

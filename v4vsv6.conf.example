@@ -16,3 +16,5 @@ output_dir = /var/www/html/v4vsv6
 data_dir = /var/lib/v4vsv6
 title = IPv4 vs IPv6 traffic
 rrdtool = rrdtool
+# Also draw transferred-volume (bytes) graphs under the bandwidth graphs
+volume_graphs = yes

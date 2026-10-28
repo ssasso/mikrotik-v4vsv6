@@ -8,7 +8,8 @@ and IPv6) through the RouterOS API. The rules are identified by their comment:
     v4v6:<interface>:<in|out>
 
 The counters are stored in one RRD file per interface, and PNG graphs plus an
-index.html are generated with RRDtool.
+index.html are generated with RRDtool. For every time range two kinds of graphs
+are produced: bandwidth (bit/s) and transferred volume (bytes per time bucket).
 
 Run it periodically (cron / systemd timer) at the same interval as
 interval_minutes in the configuration file.
@@ -41,6 +42,12 @@ PERIODS = (
     ("month", "Last 30 days", "-30d"),
     ("year", "Last year", "-400d"),
 )
+# Size of one bar in the volume graphs, in seconds (rounded to a multiple of the
+# sampling step). RRDtool aligns the buckets to the Unix epoch, i.e. to UTC.
+# Buckets matching a whole archive (daily, weekly) leave out the current,
+# still incomplete bucket, so the sizes are kept small enough that recent traffic
+# is always included, except for the year graph (today is missing there).
+VOLUME_BUCKETS = {"day": 3600, "week": 21600, "month": 43200, "year": 86400}
 COLOR = {"v4": "#2E6FD8", "v6": "#E8821E"}
 
 
@@ -71,6 +78,7 @@ def load_config(path):
         data_dir=g.get("data_dir", fallback="/var/lib/v4vsv6"),
         title=g.get("title", fallback="IPv4 vs IPv6 traffic"),
         rrdtool=g.get("rrdtool", fallback="rrdtool"),
+        volume_graphs=g.getboolean("volume_graphs", fallback=True),
     )
 
 
@@ -169,6 +177,7 @@ def update_rrd(cfg, path, iface, counters):
 
 
 def draw_graph(cfg, rrd_file, iface, direction, label, start, out_png):
+    """Bandwidth graph (bit/s), IPv4 and IPv6 stacked."""
     src = rrd_file.replace(":", "\\:")
     tmp = out_png + ".tmp"
     args = [
@@ -190,6 +199,53 @@ def draw_graph(cfg, rrd_file, iface, direction, label, start, out_png):
         "GPRINT:v6avg:avg %6.2lf %sbit/s", "GPRINT:v6max:max %6.2lf %sbit/s",
         "GPRINT:v6last:last %6.2lf %sbit/s\\l",
         "GPRINT:sharev:IPv6 share over the period\\: %5.1lf%%\\r",
+    ]
+    rrd(cfg, *args)
+    os.replace(tmp, out_png)
+
+
+def bucket_seconds(cfg, period_key):
+    """Bar size for the volume graph: the nominal size rounded to a multiple of the step."""
+    return max(1, round(VOLUME_BUCKETS[period_key] / cfg.step)) * cfg.step
+
+
+def bucket_label(seconds):
+    """Human readable bucket size: 3600 -> 'hour', 7200 -> '2 hours', 90 -> '1 min'..."""
+    for size, unit in ((604800, "week"), (86400, "day"), (3600, "hour")):
+        if seconds % size == 0:
+            n = seconds // size
+            return unit if n == 1 else f"{n} {unit}s"
+    return f"{max(1, seconds // 60)} min"
+
+
+def draw_volume_graph(cfg, rrd_file, iface, direction, label, start, bucket, out_png):
+    """Volume graph (bytes transferred per time bucket), IPv4 and IPv6 stacked.
+
+    The RRD stores the average rate (bytes/s) of every interval, so the volume of
+    a bucket is rate * bucket length. Units are decimal (kB, MB, GB).
+    """
+    src = rrd_file.replace(":", "\\:")
+    tmp = out_png + ".tmp"
+    per = bucket_label(bucket)
+    args = [
+        "graph", tmp, "--imgformat", "PNG", "--start", start, "--end", "now",
+        "--step", str(bucket),
+        "--width", "800", "--height", "220", "--lower-limit", "0",
+        "--title", f"{iface} - {direction.upper()} volume per {per} - {label}",
+        "--vertical-label", f"bytes per {per}",
+        f"DEF:b4={src}:v4_{direction}:AVERAGE",
+        f"DEF:b6={src}:v6_{direction}:AVERAGE",
+        f"CDEF:v4=b4,{bucket},*", f"CDEF:v6=b6,{bucket},*",
+        # TOTAL multiplies the rate by the step: applied to the raw rate it gives bytes
+        "VDEF:v4tot=b4,TOTAL", "VDEF:v6tot=b6,TOTAL",
+        "VDEF:v4max=v4,MAXIMUM", "VDEF:v6max=v6,MAXIMUM",
+        "CDEF:share=v6,POP,v6tot,v4tot,v6tot,+,/,100,*",
+        "VDEF:sharev=share,AVERAGE",
+        f"AREA:v4{COLOR['v4']}:IPv4  ",
+        "GPRINT:v4tot:total %6.2lf %sB", f"GPRINT:v4max:max per {per} %6.2lf %sB\\l",
+        f"STACK:v6{COLOR['v6']}:IPv6  ",
+        "GPRINT:v6tot:total %6.2lf %sB", f"GPRINT:v6max:max per {per} %6.2lf %sB\\l",
+        "GPRINT:sharev:IPv6 share of the volume\\: %5.1lf%%\\r",
     ]
     rrd(cfg, *args)
     os.replace(tmp, out_png)
@@ -220,11 +276,15 @@ small {{ opacity: .7; }}
     for iface in cfg.interfaces:
         out.append(f"<h2>{html.escape(iface)}</h2>")
         for key, label, _ in PERIODS:
-            out.append(f"<h3>{html.escape(label)}</h3><div class='row'>")
-            for d in DIRECTIONS:
-                png = f"{safe(iface)}_{d}_{key}.png"
-                out.append(f"<img src='{png}?t={stamp}' alt='{html.escape(iface)} {d} {key}'>")
-            out.append("</div>")
+            out.append(f"<h3>{html.escape(label)}</h3>")
+            # first row: bandwidth, second row: transferred volume
+            suffixes = [""] + (["_volume"] if cfg.volume_graphs else [])
+            for suffix in suffixes:
+                out.append("<div class='row'>")
+                for d in DIRECTIONS:
+                    png = f"{safe(iface)}_{d}_{key}{suffix}.png"
+                    out.append(f"<img src='{png}?t={stamp}' alt='{html.escape(iface)} {d} {key}{suffix}'>")
+                out.append("</div>")
     out.append("</body></html>")
     path = os.path.join(cfg.output_dir, "index.html")
     with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -272,6 +332,10 @@ def main():
             for d in DIRECTIONS:
                 png = os.path.join(cfg.output_dir, f"{safe(iface)}_{d}_{key}.png")
                 draw_graph(cfg, rrd_file, iface, d, label, start, png)
+                if cfg.volume_graphs:
+                    vol_png = os.path.join(cfg.output_dir, f"{safe(iface)}_{d}_{key}_volume.png")
+                    draw_volume_graph(cfg, rrd_file, iface, d, label, start,
+                                      bucket_seconds(cfg, key), vol_png)
     write_html(cfg)
 
 
